@@ -11786,6 +11786,109 @@ test(1885.1, fread(txt<-"a b 2\nc d 3\n\ne f 4\n", blank.lines.skip=TRUE), ans<-
 test(1885.2, fread(txt, blank.lines.skip=TRUE, fill=TRUE), ans)
 test(1885.3, fread(txt, fill=TRUE), ans[c(1,2,NA,3),][3,1:2:=""])  # TODO when blank strings are filled as NA rather than "", this test will then fail and the := can be removed
 
+# testing csvy reading capabilities
+## simple csvy
+f = testDir("csvy/test.csvy")
+DT = data.table(var1 = c("A", "B"),
+                var2 = c(1L, 3L),
+                var3 = c(2.5, 4.3))
+DT_yaml = copy(DT)
+attr(DT_yaml, 'yaml_metadata') =
+  list(name = "my-dataset",
+       source = "https://github.com/leeper/csvy/tree/master/inst/examples",
+       fields = list(list(name = "var1", title = "variable 1",
+                          type = "string", description = "explaining var1",
+                          constraints = list(list(required = TRUE))),
+                     list(name = "var2", title = "variable 2", type = "integer"),
+                     list(name = "var3", title = "variable 3", type = "number")))
+## with skip = '__auto__', fread can figure out
+##   how to start after the metadata (just ignoring it)
+test(1886.1, fread(f), DT)
+## should be the same, but with yaml_metadata attribute
+test(1886.2, fread(f, yaml = TRUE), DT_yaml)
+## testing verbose messaging
+test(1886.3, fread(f, yaml = TRUE, verbose = TRUE),
+     DT_yaml, output = 'Processed.*YAML metadata.*')
+## this file is identical, except the body of the
+##   YAML header is commented out with # (should read identically)
+test(1886.4,
+     fread(testDir('csvy/test_comment.csvy'), yaml = TRUE),
+     DT_yaml)
+## user input is taken as most intentional & overrides YAML
+DT_yaml[ , var2 := as.numeric(var2)]
+test(1886.5, fread(f, yaml = TRUE, colClasses = list(numeric = 'var2')),
+     DT_yaml, warning = 'colClasses.*YAML header are in conflict.*var2')
+## extraneous/unused fields shouldn't throw off reading
+DT = fread(testDir('csvy/test_extraneous.csvy'), yaml = TRUE)
+test(1886.6, names(DT), c('Date', 'WTI'))
+test(1886.7, attr(DT, 'yaml_metadata'),
+     list(names = c("Date", "WTI"), class = "data.frame",
+          title = "Cushing, OK WTI Spot Price FOB", filename = "data.csv",
+          fileurl = "https://raw.githubusercontent.com/jrovegno/csvy/master/data.csv",
+          sourceurl = "http://www.eia.gov/dnav/pet/hist/LeafHandler.ashx?n=PET&s=RWTC&f=D",
+          source_csvy = "https://github.com/leeper/csvy/tree/master/inst/examples",
+          item = "PET", sourcekey = "RWTC", freq = "Daily",
+          rate = "MID", type = "price", units = "Dollars per Barrel",
+          latestdate = "2015-08-31", releasedate = "2015-09-02",
+          nextreleasedate = "2015-09-10", source = "Thomson Reuters",
+          contactemail = "infoctr@eia.doe.gov", contactphone = "(202) 586-8800"))
+## yaml can also handle sep, dec, quote, and na.strings
+DT_out = data.table(var1 = c("A", "B"),
+                    var2 = c(1L, NA),
+                    var3 = c(2.5, 4.3))
+meta =
+  list(name = NULL,
+       fields = list(list(name = "var1", title = "variable 1",
+                          type = "string",
+                          description = "a single-quoted character variable"),
+                     list(name = "var2", title = "variable 2",
+                          type = "integer"),
+                     list(name = "var3", title = "variable 3",
+                          type = "number",
+                          description = "European-style numeric")),
+       header = TRUE, sep = "|", dec = ",",
+       quote = "'", na.strings = "@")
+attr(DT_out, 'yaml_metadata') = meta
+test(1886.8, fread(testDir('csvy/test_attributes.csvy'), yaml = TRUE), DT_out)
+## user-specified attributes can override data from YAML
+meta$sep = "-"
+attr(DT_out, 'yaml_metadata') = meta
+test(1886.9, fread(testDir('csvy/test_attr_wrong.csvy'), yaml = TRUE, sep = '|'), DT_out, warning = 'User-supplied.*sep.*override')
+## error if YAML malformed
+test(1886.10, fread(testDir('csvy/test_incomplete_header.csvy'), yaml = TRUE),
+     error = 'Reached the end.*YAML.*valid csvy')
+test(1886.11, fread(testDir('issue_2566.csv'), yaml = TRUE),
+     error = 'Encountered.*unskipped.*constitute.*valid YAML')
+## no problem if some fields are missing a type (just
+##   resort to standard auto-inferral, i.e., identical to
+##   the case of partially-specified colClasses)
+DT = data.table(var1 = c("A", "B"), var2 = c(1L, 3L),
+                var3 = c(2.5, 4.3))
+attr(DT, 'yaml_metadata') =
+  list(name = "my-dataset", source = "https://github.com/leeper/csvy/tree/master/inst/examples",
+       fields = list(list(name = "var1"),
+                     list(name = "var2", type = "integer"),
+                     list(name = "var3", type = "number")))
+test(1886.12, fread(testDir('csvy/test_missing_type.csvy'), yaml = TRUE), DT)
+## skip applies starting after the YAML header
+attr(DT, 'yaml_metadata') =
+  list(fields = list(list(name = "var1", type = "string"),
+                     list(name = "var2", type = "integer"),
+                     list(name = "var3", type = "number")))
+test(1886.13, fread(testDir('csvy/test_skip.csvy'), yaml = TRUE, skip = 2L), DT)
+## user-supplied col.names override metadata (as for colClasses)
+cn = paste0('V', 1:3)
+setnames(DT, cn)
+test(1886.14, fread(testDir('csvy/test_skip.csvy'),
+                    yaml = TRUE, skip = 2L, col.names = cn),
+     DT, warning = 'User-supplied column names.*override.*YAML')
+## invalid value fails
+test(1886.15, fread(f, yaml = 'gobble'),
+     error = 'isTrueFalse\\(yaml\\) is not TRUE')
+## warning that skip-as-search doesn't work with yaml
+DT_yaml[ , var2 := as.integer(var2)]
+test(1886.16, fread(f, skip = 'var1,', yaml = TRUE),
+     DT_yaml, warning = 'Combining a search.*YAML.*')
 
 ###################################
 #  Add new tests above this line  #

@@ -19,7 +19,7 @@ check.names=FALSE, encoding="unknown",
 strip.white=TRUE, fill=FALSE, blank.lines.skip=FALSE, key=NULL,
 showProgress=interactive(),
 data.table=getOption("datatable.fread.datatable"),
-nThread=getDTthreads(), logical01=TRUE, autostart=NA
+nThread=getDTthreads(), logical01=TRUE, yaml=FALSE, autostart=NA
 )
 }
 \arguments{
@@ -47,9 +47,10 @@ nThread=getDTthreads(), logical01=TRUE, autostart=NA
   \item{blank.lines.skip}{\code{logical}, default is \code{FALSE}. If \code{TRUE} blank lines in the input are ignored.}
   \item{key}{Character vector of one or more column names which is passed to \code{\link{setkey}}. It may be a single comma separated string such as \code{key="x,y,z"}, or a vector of names such as \code{key=c("x","y","z")}. Only valid when argument \code{data.table=TRUE}.}
   \item{showProgress}{ \code{TRUE} displays progress on the console if the ETA is greater than 3 seconds. It is produced in fread's C code where the very nice (but R level) txtProgressBar and tkProgressBar are not easily available. }
-  \item{data.table}{ TRUE returns a \code{data.table}. FALSE returns a \code{data.frame}. }
+  \item{data.table}{ \code{TRUE} returns a \code{data.table}; \code{FALSE} returns a \code{data.frame}. }
   \item{nThread}{The number of threads to use. Experiment to see what works best for your data on your hardware.}
-  \item{logical01}{If TRUE a column containing only 0s and 1s will be read as logical, otherwise as integer.}
+  \item{logical01}{If \code{TRUE} a column containing only 0s and 1s will be read as logical, otherwise as integer.}
+  \item{yaml}{ If \code{TRUE}, \code{fread} will attempt to parse (using \code{yaml::yaml.load}) the top of the input as YAML, and further to glean parameters relevant to improving the performance of \code{fread} on the data itself. The entire YAML section is returned as parsed into a \code{list} in the \code{yaml_metadata} attribute. See \code{Details}. }
   \item{autostart}{ Deprecated and ignored with warning. Please use \code{skip} instead. }
 }
 \details{
@@ -85,6 +86,9 @@ When \code{quote} is a single character,
   }
 
 To read fields \emph{as is} instead, use \code{quote = ""}.
+
+\bold{CSVY Support:}
+Currently, the \code{yaml} setting is somewhat inflexible with respect to incorporating metadata to facilitate file reading. Information on column classes should be stored at the top level under the heading \code{fields}; those with both a \code{type} and a \code{name} sub-heading will be merged into \code{colClasses}. \code{fread} can also parse the field separator if it's stored under the top-level heading \code{sep} or \code{delimiter}; the \code{header} argument under heading \code{header}; the \code{quote} argument under heading \code{quote}, \code{quoteChar}, or \code{quote_char}; the \code{dec} argument under heading \code{dec} or \code{decimal}; and the \code{na.strings} argument under heading \code{na.strings}.
 }
 \value{
     A \code{data.table} by default. A \code{data.frame} when argument \code{data.table=FALSE}; e.g. \code{options(datatable.fread.datatable=FALSE)}.
@@ -106,6 +110,8 @@ Background :\cr
 \url{http://stackoverflow.com/questions/9608950/reading-huge-files-using-memory-mapped-files}
 
 finagler = "to get or achieve by guile or manipulation" \url{http://dictionary.reference.com/browse/finagler}
+
+On YAML, see \url{http://yaml.org/}; on csvy, see \url{http://csvy.org/}.
 }
 \seealso{ \code{\link[utils]{read.csv}}, \code{\link[base]{url}}, \code{\link[base]{Sys.setlocale}}
 }

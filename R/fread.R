@@ -1,13 +1,6 @@
 
-fread <- function(input="",file,sep="auto",sep2="auto",dec=".",quote="\"",nrows=Inf,header="auto",na.strings="NA",stringsAsFactors=FALSE,verbose=getOption("datatable.verbose"),skip="__auto__",select=NULL,drop=NULL,colClasses=NULL,integer64=getOption("datatable.integer64"), col.names, check.names=FALSE, encoding="unknown", strip.white=TRUE, fill=FALSE, blank.lines.skip=FALSE, key=NULL, showProgress=interactive(),data.table=getOption("datatable.fread.datatable"),nThread=getDTthreads(),logical01=TRUE,autostart=NA)
+fread <- function(input="",file,sep="auto",sep2="auto",dec=".",quote="\"",nrows=Inf,header="auto",na.strings="NA",stringsAsFactors=FALSE,verbose=getOption("datatable.verbose"),skip="__auto__",select=NULL,drop=NULL,colClasses=NULL,integer64=getOption("datatable.integer64"), col.names, check.names=FALSE, encoding="unknown", strip.white=TRUE, fill=FALSE, blank.lines.skip=FALSE, key=NULL, showProgress=interactive(),data.table=getOption("datatable.fread.datatable"),nThread=getDTthreads(),logical01=TRUE,yaml=FALSE,autostart=NA)
 {
-  if (is.null(sep)) sep="\n"         # C level knows that \n means \r\n on Windows, for example
-  else {
-    stopifnot( length(sep)==1L, !is.na(sep), is.character(sep) )
-    if (sep=="") sep="\n"             # meaning readLines behaviour. The 3 values (NULL, "" or "\n") are equivalent.
-    else if (sep=="auto") sep=""      # sep=="" at C level means auto sep
-    else stopifnot( nchar(sep)==1L )  # otherwise an actual character to use as sep
-  }
   stopifnot( is.character(dec), length(dec)==1L, nchar(dec)==1L )
   # handle encoding, #563
   if (length(encoding) != 1L || !encoding %in% c("unknown", "UTF-8", "Latin-1")) {
@@ -16,7 +9,8 @@ fread <- function(input="",file,sep="auto",sep2="auto",dec=".",quote="\"",nrows=
   isTrueFalse = function(x) isTRUE(x) || identical(FALSE, x)
   isTrueFalseNA = function(x) isTRUE(x) || identical(FALSE, x) || identical(NA, x)
   stopifnot( isTrueFalse(strip.white), isTrueFalse(blank.lines.skip), isTrueFalse(fill), isTrueFalse(showProgress),
-             isTrueFalse(stringsAsFactors), isTrueFalse(verbose), isTrueFalse(check.names), isTrueFalse(logical01) )
+             isTrueFalse(stringsAsFactors), isTrueFalse(verbose), isTrueFalse(check.names), isTrueFalse(logical01),
+             isTrueFalse(yaml))
   stopifnot( is.numeric(nrows), length(nrows)==1L )
   if (is.na(nrows) || nrows<0) nrows=Inf   # accept -1 to mean Inf, as read.table does
   if (identical(header,"auto")) header=NA
@@ -79,8 +73,154 @@ fread <- function(input="",file,sep="auto",sep2="auto",dec=".",quote="\"",nrows=
     }
   }
   stopifnot(length(skip)==1L, !is.na(skip), is.character(skip) || is.numeric(skip))
-  if (skip=="__auto__") skip=-1L   # skip="string" so long as "string" is not "__auto__". Best conveys to user something is automatic there (than -1 or NA).
-  if (is.double(skip)) skip = as.integer(skip)
+  if (skip=="__auto__") {
+    if (yaml) {
+      skip=0L
+    } else {
+      skip=-1L   # skip="string" so long as "string" is not "__auto__". Best conveys to user something is automatic there (than -1 or NA).
+    }
+  } else if (is.double(skip)) skip = as.integer(skip)
+  if (yaml) {
+    if (!requireNamespace('yaml', quietly = TRUE))
+      stop("'data.table' relies on the package 'yaml' to ",
+           "parse the file header; please add this to your ",
+           "library with install.packages('yaml') and try again.")
+    if (is.character(skip))
+      warning("Combining a search string as 'skip' and reading a ",
+              "YAML header may not work as expected -- currently, ",
+              "reading will proceed to search for 'skip' from ",
+              "the beginning of the file, NOT from the end of ",
+              "the metadata; please file an issue on GitHub if ",
+              "you'd like to see more intuitive behavior supported.")
+    # create connection to stream header lines from file:
+    #   https://stackoverflow.com/questions/9871307
+    f = base::file(input, 'r')
+    first_line = readLines(f, n=1L)
+    n_read = 1L
+    yaml_border_re = '^#?---'
+    if (!grepl(yaml_border_re, first_line)) {
+      close(f)
+      stop('Encountered <', substring(first_line, 1L, 50L),
+           if (nchar(first_line) > 50L) '...', '> at the first ',
+           'unskipped line (', 1L+skip, '), which does not ',
+           'constitute the start to a valid YAML header ',
+           '(expecting something matching regex "', yaml_border_re,
+           '"); please check your input and try again.')
+    }
+
+    yaml_comment_re = '^#'
+    yaml_string = character(0L)
+    while (TRUE) {
+      this_line = readLines(f, n=1L)
+      n_read = n_read + 1L
+      if (!length(this_line)){
+        close(f)
+        stop('Reached the end of the file before finding ',
+             'a completion to the YAML header. A valid ',
+             'YAML header is bookended by lines matching ',
+             'the regex "', yaml_border_re, '". Please ',
+             'double check the input file is a valid csvy.')
+      }
+      if (grepl(yaml_border_re, this_line)) break
+      if (grepl(yaml_comment_re, this_line))
+        this_line = sub(yaml_comment_re, '', this_line)
+      yaml_string = paste(yaml_string, this_line, sep='\n')
+    }
+    close(f) # when #561 is implemented, no need to close f.
+
+    yaml_header = yaml::yaml.load(yaml_string)
+    yaml_names = names(yaml_header)
+    if (verbose) cat('Processed', n_read, 'lines of YAML',
+                     'metadata with the following top-level fields:',
+                     sprintf('[%s]\n', paste(names(yaml_header), collapse=',')))
+    if ('fields' %chin% yaml_names) {
+      new_types = sapply(yaml_header$fields, `[[`, 'type')
+      if (any(null_idx <- sapply(new_types, is.null)))
+        new_types = do.call(c, new_types)
+      synonms = data.table(
+        r_type = rep(c('character', 'integer', 'numeric'),
+                     c(2L, 2L, 3L)),
+        syn = c('character', 'string', 'integer', 'int',
+                'numeric', 'number', 'double'),
+        key = 'syn'
+      )
+      new_types = synonms[list(new_types)]$r_type
+      new_names = sapply(yaml_header$fields[!null_idx], `[[`, 'name')
+
+      # resolve any conflicts with colClasses, if supplied;
+      #   colClasses (if present) is already in list form by now
+      if (!is.null(colClasses)) {
+        if (any(idx_name <- new_names %chin% unlist(colClasses))) {
+          matched_name_idx = which(idx_name)
+          if (!all(idx_type <- sapply(matched_name_idx, function(ii) {
+            new_names[ii] %chin% colClasses[[ new_types[ii] ]]
+          }))) {
+            plural = sum(idx_type) > 1L
+            warning('colClasses dictated by user input and ',
+                    'those read from YAML header are in conflict ',
+                    '(specifically, for column', if (plural) 's',
+                    ' [', paste(new_names[matched_name_idx[!idx_type]],
+                                collapse = ','),
+                    ']); the proceeding assumes the user input was ',
+                    'an intentional override and will ignore the types ',
+                    'implied by the YAML header; please exclude ',
+                    if (plural) 'these columns' else 'this column',
+                    ' from colClasses if this was unintentional.')
+          }
+        }
+        # only add unmentioned columns
+        for (ii in which(!idx_name)) {
+          colClasses[[ new_types[ii] ]] =
+            c(colClasses[[ new_types[ii] ]], new_names[ii])
+        }
+      } else colClasses = tapply(new_names, new_types, c, simplify=FALSE)
+      if (!missing(col.names)) {
+        warning("User-supplied column names in 'col.names' will ",
+                "override those found in YAML metadata.")
+      }
+    }
+    sep_syn = c('sep', 'delimiter')
+    if (any(sep_idx <- sep_syn %chin% yaml_names)) {
+      if (sep != 'auto')
+        warning("User-supplied 'sep' will override that found in metadata.")
+      else sep = yaml_header[[ sep_syn[sep_idx][1L] ]]
+    }
+    if ('header' %chin% yaml_names) {
+      if (!is.na(header))
+        warning("User-supplied 'header' will override that found in metadata.")
+      else header = as.logical(yaml_header$header)
+    }
+    quote_syn = c('quote', 'quoteChar', 'quote_char')
+    if (any(quote_idx <- quote_syn %chin% yaml_names)) {
+      # won't catch if user explicitly set quote='"'
+      if (quote != '"')
+        warning("User-supplied 'quote' will override that found in metadata.")
+      else quote = yaml_header[[ quote_syn[quote_idx][1L] ]]
+    }
+    dec_syn = c('dec', 'decimal')
+    if (any(dec_idx <- dec_syn %chin% yaml_names)) {
+      # won't catch if user explicitly set dec="."
+      if (dec != '.')
+        warning("User-supplied 'dec' will override that found in metadata.")
+      else dec = yaml_header[[ dec_syn[dec_idx][1L] ]]
+    }
+    if ('na.strings' %chin% yaml_names) {
+      # won't catch if user explicitly set na.strings="NA"
+      if (na.strings != 'NA')
+        warning("User-supplied 'na.strings' will override that found in metadata.")
+      else na.strings = yaml_header$na.strings
+    }
+    if (is.integer(skip)) skip = skip + n_read
+  }
+
+  if (is.null(sep)) sep="\n"         # C level knows that \n means \r\n on Windows, for example
+  else {
+    stopifnot( length(sep)==1L, !is.na(sep), is.character(sep) )
+    if (sep=="") sep="\n"             # meaning readLines behaviour. The 3 values (NULL, "" or "\n") are equivalent.
+    else if (sep=="auto") sep=""      # sep=="" at C level means auto sep
+    else stopifnot( nchar(sep)==1L )  # otherwise an actual character to use as sep
+  }
+
   warnings2errors = getOption("warn") >= 2
   ans = .Call(CfreadR,input,sep,dec,quote,header,nrows,skip,na.strings,strip.white,blank.lines.skip,
               fill,showProgress,nThread,verbose,warnings2errors,logical01,select,drop,colClasses,integer64,encoding)
@@ -130,6 +270,8 @@ fread <- function(input="",file,sep="auto",sep2="auto",dec=".",quote="\"",nrows=
     }
     setkeyv(ans, key)
   }
+
+  if (yaml) attr(ans, 'yaml_metadata') = yaml_header
   ans
 }
 
