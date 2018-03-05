@@ -2,7 +2,7 @@
 if (!exists("test.data.table",.GlobalEnv,inherits=FALSE)) {
     require(data.table)   # in dev the package should not be loaded
     inst_pkgs = rownames(installed.packages())
-    sugg_pkgs = c("bit64", "knitr", "nanotime", "chron", "ggplot2", "plyr", "reshape", "reshape2", "testthat", "hexbin", "fastmatch", "nlme", "GenomicRanges", "xts", "gdata", "caret", "curl", "zoo", "plm", "rmarkdown", "parallel")
+    sugg_pkgs = c("bit64", "knitr", "nanotime", "chron", "ggplot2", "plyr", "reshape", "reshape2", "testthat", "hexbin", "fastmatch", "nlme", "GenomicRanges", "xts", "gdata", "caret", "curl", "zoo", "plm", "rmarkdown", "parallel", "yaml")
     lapply(setNames(sugg_pkgs, nm = sugg_pkgs), function(pkg) if(pkg %in% inst_pkgs) require(pkg, character.only=TRUE))  # require() so it warns but doesn't halt if not available
     # reshape2 ahead of reshape ...
     try(detach(package:reshape2),silent=TRUE)
@@ -11743,9 +11743,10 @@ test(1879.6, fread(f, verbose=TRUE), DT,
                   sep = '.*'))
 unlink(f)
 
-# Fix duplicated names arising in merge when by.x in names(y), PR#2631
+# Fix duplicated names arising in merge when by.x in names(y), PR#2631, PR#2653
 # 1880.1 should fail in there are any duplicate names after a join
 # 1880.2 should fail if a warning is not thrown when suffixes leads to duplicate names
+# 1880.3 tests no.dups = FALSE, where names should be duplicated after the join
 parents = data.table(name=c("Sarah", "Max"), sex=c("F", "M"), age=c(41, 43))
 children = data.table(parent=c("Sarah", "Max", "Max"),
                        name=c("Oliver", "Sebastian", "Michelle"),
@@ -11754,6 +11755,8 @@ joined = merge(parents, children, by.x="name", by.y="parent")
 test(1880.1, length(names(joined)), length(unique(names(joined))))
 test(1880.2, nrow(merge(parents, children, by.x="name", by.y="parent", suffixes=c("",""))), 3L,
              warning = "column names.*are duplicated in the result")
+joined = suppressWarnings(merge(parents, children, by.x="name", by.y="parent", no.dups=FALSE))
+test(1880.3, any(duplicated(names(joined))), TRUE)             
 
 # out-of-sample quote rule bump, #2265
 DT = data.table(A=rep("abc", 10000), B="def")
@@ -11889,6 +11892,11 @@ test(1886.15, fread(f, yaml = 'gobble'),
 DT_yaml[ , var2 := as.integer(var2)]
 test(1886.16, fread(f, skip = 'var1,', yaml = TRUE),
      DT_yaml, warning = 'Combining a search.*YAML.*')
+
+# file detected as no header automatically
+# (TOOD: undoubling double quotes #1109, #1299) but otherwise, auto mode correct
+test(1887, fread(testDir("quoted_no_header.csv"))[c(1,.N),list(V1,V6)], data.table(V1=c("John","Joan \"\"the bone\"\", Anne"), V6=INT(8075,123)))
+
 
 ###################################
 #  Add new tests above this line  #
