@@ -101,6 +101,8 @@ export(dcast.data.table)
 S3method(dcast, data.table)
 
 import(utils)
+S3method(update, dev.pkg)
+export(update.dev.pkg)
 S3method(tail, data.table)
 S3method(head, data.table)
 import(stats)
@@ -110,7 +112,6 @@ S3method(na.omit, data.table)
 export(as.IDate,as.ITime,IDateTime)
 export(second,minute,hour,yday,wday,mday,week,isoweek,month,quarter,year)
 
-export(as.chron.IDate, as.chron.ITime)
 export(as.Date.IDate) # workaround for zoo bug, see #1500
 
 S3method("[", ITime)

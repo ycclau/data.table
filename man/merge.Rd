@@ -17,8 +17,8 @@ Set the \code{by}, or \code{by.x} and \code{by.y} arguments explicitly to overri
 }
 
 \usage{
-\method{merge}{data.table}(x, y, by = NULL, by.x = NULL, by.y = NULL,
-all = FALSE, all.x = all, all.y = all, sort = TRUE, suffixes = c(".x", ".y"), no.dups = TRUE,
+\method{merge}{data.table}(x, y, by = NULL, by.x = NULL, by.y = NULL, all = FALSE,
+all.x = all, all.y = all, sort = TRUE, suffixes = c(".x", ".y"), no.dups = TRUE,
 allow.cartesian=getOption("datatable.allow.cartesian"),  # default FALSE
 ...)
 }
@@ -73,7 +73,7 @@ comparison of \code{merge} and \code{x[y, ...]}.
 If any column names provided to \code{by.x} also occur in \code{names(y)} but not in \code{by.y},
 then this \code{data.table} method will add the \code{suffixes} to those column names. As of
 R v3.4.3, the \code{data.frame} method will not (leading to duplicate column names in the result) but a patch has
-been proposed (see thread \href{http://r.789695.n4.nabble.com/Duplicate-column-names-created-by-base-merge-when-by-x-has-the-same-name-as-a-column-in-y-td4748345.html}{here})
+been proposed (see r-devel thread \href{http://r.789695.n4.nabble.com/Duplicate-column-names-created-by-base-merge-when-by-x-has-the-same-name-as-a-column-in-y-td4748345.html}{here})
 which is looking likely to be accepted for a future version of R.
 }
 
@@ -140,5 +140,4 @@ merge(d2, d1, by.x="b", by.y="a")
 }
 
 \keyword{ data }
-
 

@@ -86,7 +86,7 @@ static void gsfree() {
 /*
    icount originally copied from do_radixsort in src/main/sort.c @ rev 51389. Then reworked here again in forder.c in v1.8.11
    base::sort.list(method="radix") turns out not to be a radix sort, but a counting sort, and we like it.
-   See http://r.789695.n4.nabble.com/method-radix-in-sort-list-isn-t-actually-a-radix-sort-tp3309470p3309470.html
+   See r-devel post: http://r.789695.n4.nabble.com/method-radix-in-sort-list-isn-t-actually-a-radix-sort-tp3309470p3309470.html
    Main changes :
    1. Negatives are fine. Btw, wish raised for simple change to base R : https://bugs.r-project.org/bugzilla3/show_bug.cgi?id=15644
    2. Doesn't cummulate through 0's for speed in repeated calls of sparse counts by saving memset back to 0 of many 0
@@ -460,7 +460,7 @@ unsigned long long dtwiddle(void *p, int i, int order)
    /* 1. NA twiddled to all bits 0, sorts first.  R's value 1954 cleared.
       2. NaN twiddled to set just bit 13, sorts immediately after NA. 13th bit to be
          consistent with "quiet" na bit but any bit outside last 2 bytes would do.
-         (ref: http://r.789695.n4.nabble.com/Question-re-NA-NaNs-in-R-td4685014.html)
+         (ref r-devel post: http://r.789695.n4.nabble.com/Question-re-NA-NaNs-in-R-td4685014.html)
       3. This also normalises a difference between NA on 32bit R (bit 13 set) and 64bit R (bit 13 not set)
       4. -Inf twiddled to : 0 sign, exponent all 0, mantissa all 1, sorts after NaN
       5. +Inf twiddled to : 1 sign, exponent all 1, mantissa all 0, sorts last since finite
@@ -866,7 +866,7 @@ static void csort(SEXP *x, int *o, int n)
   /* can't use otmp, since iradix might be called here and that uses otmp (and xtmp).
      alloc_csort_otmp(n) is called from forder for either n=nrow if 1st column,
      or n=maxgrpn if onwards columns */
-  for(i=0; i<n; i++) csort_otmp[i] = (x[i] == NA_STRING) ? NA_INTEGER : -TRUELENGTH(ENC2UTF8(x[i]));
+  for(i=0; i<n; i++) csort_otmp[i] = (x[i] == NA_STRING) ? NA_INTEGER : -TRUELENGTH(x[i]);
   if (nalast == 0 && n == 2) {                        // special case for nalast==0. n==1 is handled inside forder. at least 1 will be NA here
     if (o[0] == -1) for (i=0; i<n; i++) o[i] = i+1;    // else use o from caller directly (not 1st column)
     for (int i=0; i<n; i++) if (csort_otmp[i] == NA_INTEGER) o[i] = 0;
@@ -899,7 +899,7 @@ static void csort_pre(SEXP *x, int n)
   // savetl_init() is called once at the start of forder
   old_un = ustr_n;
   for(i=0; i<n; i++) {
-    s = ENC2UTF8(x[i]);
+    s = x[i];
     if (TRUELENGTH(s)<0) continue;   // this case first as it's the most frequent. Already in ustr, this negative is its ordering.
     if (TRUELENGTH(s)>0) {  // Save any of R's own usage of tl (assumed positive, so we can both count and save in one scan), to restore
       savetl(s);          // afterwards. From R 2.14.0, tl is initialized to 0, prior to that it was random so this step saved too much.
@@ -1082,6 +1082,12 @@ static void dsort(double *x, int *o, int n)
   }
 }
 
+bool need2utf8(SEXP x, int n)
+{
+  for (int i=0; i<n; i++) if (NEED2UTF8(STRING_ELT(x, i))) return(true);
+  return(false);
+}
+
 SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP naArg)
 // sortStr TRUE from setkey, FALSE from by=
 {
@@ -1098,7 +1104,8 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
 
   if (isNewList(DT)) {
     if (!length(DT)) error("DT is an empty list() of 0 columns");
-    if (!isInteger(by) || !length(by)) error("DT has %d columns but 'by' is either not integer or length 0", length(DT));  // seq_along(x) at R level
+    if (!isInteger(by) || !LENGTH(by)) error("DT has %d columns but 'by' is either not integer or is length 0", length(DT));  // seq_along(x) at R level
+    if (!isInteger(orderArg) || LENGTH(orderArg)!=LENGTH(by)) error("Either 'order' is not integer or its length (%d) is different to 'by's length (%d)", LENGTH(orderArg), LENGTH(by));
     n = length(VECTOR_ELT(DT,0));
     for (i=0; i<LENGTH(by); i++) {
       if (INTEGER(by)[i] < 1 || INTEGER(by)[i] > length(DT))
@@ -1109,6 +1116,7 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
     x = VECTOR_ELT(DT,INTEGER(by)[0]-1);
   } else {
     if (!isNull(by)) error("Input is a single vector but 'by' is not NULL");
+    if (!isInteger(orderArg) || LENGTH(orderArg)!=1) error("Input is a single vector but 'order' is not a length 1 integer");
     n = length(DT);
     x = DT;
   }
@@ -1120,12 +1128,23 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
   nalast = (LOGICAL(naArg)[0] == NA_LOGICAL) ? 0 : (LOGICAL(naArg)[0] == TRUE) ? 1 : -1; // 1=TRUE, -1=FALSE, 0=NA
   gsmaxalloc = n;  // upper limit for stack size (all size 1 groups). We'll detect and avoid that limit, but if just one non-1 group (say 2), that can't be avoided.
 
-  // TODO: check for 'orderArg'
+  if (n==0) {
+    // empty vector or 0-row DT is always sorted
+    SEXP ans = PROTECT(allocVector(INTSXP, 0));
+    if (LOGICAL(retGrp)[0]) {
+      setAttrib(ans, sym_starts, allocVector(INTSXP, 0));
+      setAttrib(ans, sym_maxgrpn, ScalarInteger(0));
+    }
+    UNPROTECT(1);
+    return ans;
+  }
+  // if n==1, the code is left to proceed below in case one or more of the 1-row by= columns are NA and na.last=NA. Otherwise it would be easy to return now.
 
   SEXP ans = PROTECT(allocVector(INTSXP, n)); // once for the result, needs to be length n.
+  int n_protect = 1;
   int *o = INTEGER(ans);                      // TO DO: save allocation if NULL is returned (isSorted==TRUE)
   o[0] = -1;                                  // so [i|c|d]sort know they can populate o directly with no working memory needed to reorder existing order
-                        // had to repace this from '0' to '-1' because 'nalast = 0' replace 'o[.]' with 0 values.
+                                              // using -1 rather than 0 because 'nalast = 0' replaces 'o[.]' with 0 values.
   xd = DATAPTR(x);
   stackgrps = length(by)>1 || LOGICAL(retGrp)[0];
   savetl_init();   // from now on use Error not error.
@@ -1149,6 +1168,7 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
   default :
     Error("First column being ordered is type '%s', not yet supported", type2char(TYPEOF(x)));
   }
+
   if (tmp) {                                  // -1 or 1. NEW: or -2 in case of nalast == 0 and all NAs
     if (tmp == 1) {                         // same as expected in 'order' (1 = increasing, -1 = decreasing)
       isSorted = TRUE;
@@ -1168,6 +1188,11 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
     case REALSXP :
       dsort(xd, o, n); break;
     case STRSXP :
+      if (need2utf8(x, n)) {
+        SEXP tt = PROTECT(allocVector(STRSXP, n)); n_protect++;
+        for (int i=0; i<n; i++) SET_STRING_ELT(tt, i, ENC2UTF8(STRING_ELT(x, i)));
+        xd = DATAPTR(tt);
+      }
       if (sortStr) { csort_pre(xd, n); alloc_csort_otmp(n); csort(xd, o, n); }
       else cgroup(xd, o, n);
       break;
@@ -1212,6 +1237,11 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
       f = &dsorted; g = &dsort; break;
     case STRSXP :
       f = &csorted;
+      if (need2utf8(x, n)) {
+        SEXP tt = PROTECT(allocVector(STRSXP, n)); n_protect++;
+        for (int i=0; i<n; i++) SET_STRING_ELT(tt, i, ENC2UTF8(STRING_ELT(x, i)));
+        xd = DATAPTR(tt);
+      }
       if (sortStr) { csort_pre(xd, n); alloc_csort_otmp(gsmax[1-flip]); g = &csort; }
       else g = &cgroup; // no increasing/decreasing order required if sortStr = FALSE, just a dummy argument
       break;
@@ -1245,10 +1275,12 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
       osub = o+i;
       // ** TO DO **: if isSorted,  we can just point xsub into x directly. If (*f)() returns 0, though, will have to copy x at that point
       //        When doing this,  xsub could be allocated at that point for the first time.
-      if (size==4)
+      if (size==4) {
         for (j=0; j<thisgrpn; j++) ((int *)xsub)[j] = ((int *)xd)[o[i++]-1];
-      else
+      } else {
         for (j=0; j<thisgrpn; j++) ((double *)xsub)[j] = ((double *)xd)[o[i++]-1];
+      }
+
       TEND(2)
 
       // continue;  // BASELINE short circuit timing point. Up to here is the cost of creating xsub.
@@ -1302,8 +1334,9 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
   free(ustr);                ustr=NULL;          ustr_alloc=0;
 
   if (isSorted) {
-    UNPROTECT(1);  // The existing o vector, which we may save in future, if in future we only create when isSorted becomes FALSE
+    // the o vector created earlier could be avoided in this case if we only create it when isSorted becomes FALSE
     ans = PROTECT(allocVector(INTSXP, 0));  // Can't attach attributes to NULL
+    n_protect++;
   }
   if (LOGICAL(retGrp)[0]) {
     ngrp = gsngrp[flip];
@@ -1329,8 +1362,8 @@ SEXP forder(SEXP DT, SEXP by, SEXP retGrp, SEXP sortStrArg, SEXP orderArg, SEXP 
   free(cradix_counts);       cradix_counts=NULL; cradix_counts_alloc=0;
   free(cradix_xtmp);         cradix_xtmp=NULL;   cradix_xtmp_alloc=0;   // TO DO: use xtmp already got
 
-  UNPROTECT(1);
-  return( ans );
+  UNPROTECT(n_protect);
+  return ans;
 }
 
 // TODO: implement 'order' argument to 'fsorted'

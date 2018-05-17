@@ -1,12 +1,12 @@
 fwrite <- function(x, file="", append=FALSE, quote="auto",
            sep=",", sep2=c("","|",""), eol=if (.Platform$OS.type=="windows") "\r\n" else "\n",
-           na=if (length(x)>1L) "" else "NA", dec=".", row.names=FALSE, col.names=TRUE,
+           na="", dec=".", row.names=FALSE, col.names=TRUE,
            qmethod=c("double","escape"),
-           logical01=getOption("datatable.logical01", TRUE),
+           logical01=getOption("datatable.logical01", FALSE), # due to change to TRUE; see NEWS
            logicalAsInt=logical01,
            dateTimeAs = c("ISO","squash","epoch","write.csv"),
            buffMB=8, nThread=getDTthreads(),
-           showProgress=interactive(),
+           showProgress=getOption("datatable.showProgress", interactive()),
            verbose=getOption("datatable.verbose", FALSE)) {
   isLOGICAL = function(x) isTRUE(x) || identical(FALSE, x)  # it seems there is no isFALSE in R?
   na = as.character(na[1L]) # fix for #1725
