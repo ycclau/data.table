@@ -11950,13 +11950,13 @@ for (col in c('b', 'c')) {
 #
 # tests-S4.R (S4 Compatability)
 #
-suppressWarnings(setClass("Data.Table", contains="data.table"))  # suppress 'Created a package name, ‘2018-05-26 06:14:43.444’, when none found'
-suppressWarnings(setClass("S4Composition", representation(data="data.table")))
+suppressWarnings(methods::setClass("Data.Table", contains="data.table"))  # suppress 'Created a package name, ‘2018-05-26 06:14:43.444’, when none found'
+suppressWarnings(methods::setClass("S4Composition", methods::representation(data="data.table")))
 # data.table can be a parent class"
 ids <- sample(letters[1:3], 10, replace=TRUE)
 scores <- rnorm(10)
 dt <- data.table(id=ids, score=scores)
-dt.s4 <- new("Data.Table", data.table(id=ids, score=scores))
+dt.s4 <- methods::new("Data.Table", data.table(id=ids, score=scores))
 test(1914.1, isS4(dt.s4))
 test(1914.2, inherits(dt.s4, 'data.table'))
 ## pull out data from S4 as.list, and compare to list from dt
@@ -11966,18 +11966,18 @@ test(1914.3, dt.s4.list, as.list(dt))  # Underlying data not identical
 # simple S4 conversion-isms work
 df = data.frame(a=sample(letters, 10), b=1:10)
 dt = as.data.table(df)
-test(1914.4, identical(as(df, 'data.table'), dt))
-test(1914.5, identical(as(dt, 'data.frame'), df))
+test(1914.4, identical(methods::as(df, 'data.table'), dt))
+test(1914.5, identical(methods::as(dt, 'data.frame'), df))
 # data.table can be used in an S4 slot
 dt <- data.table(a=sample(letters[1:3], 10, replace=TRUE), score=rnorm(10))
-dt.comp <- new("S4Composition", data=dt)
+dt.comp <- methods::new("S4Composition", data=dt)
 test(1914.6, dt.comp@data, dt)
 # S4 methods dispatch properly on data.table slots"
 dt <- data.table(a=sample(letters[1:3], 10, replace=TRUE), score=rnorm(10))
-dt.comp <- new("S4Composition", data=dt)
-setGeneric("dtGet", function(x, what) standardGeneric("dtGet"))
-setMethod("dtGet", c(x="S4Composition", what="missing"), function(x, what){x@data})
-setMethod("dtGet", c(x="S4Composition", what="ANY"), function(x, what) {x@data[[what]]})
+dt.comp <- methods::new("S4Composition", data=dt)
+methods::setGeneric("dtGet", function(x, what) methods::standardGeneric("dtGet"))
+methods::setMethod("dtGet", c(x="S4Composition", what="missing"), function(x, what){x@data})
+methods::setMethod("dtGet", c(x="S4Composition", what="ANY"), function(x, what) {x@data[[what]]})
 test(1914.7, dtGet(dt.comp), dt)  # actually
 test(1914.8, identical(dtGet(dt.comp, 1), dt[[1]]))
 test(1914.9, identical(dtGet(dt.comp, 'b'), dt$b))
